@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/env python
 
 # Slacker import
 from slacker import Slacker
@@ -32,6 +32,8 @@ user="USER"
 icon="ICON_POSTER"
 # The "header" for the Slack message, akak pretex
 subject="MESSAGE"
+# The footer of the Slack message
+footer="FOOTER"
 
 
 # A message class which we loop over in main
@@ -139,7 +141,9 @@ def main():
     last_datetime = get_last_message_datetime(logfile_name)
     last_timestamp = time.mktime(last_datetime.timetuple())
 
-    raw_messages = GetFullMessages(chan_id, chan_name)
+    # Last true referes to if channels is private
+    # Slack API changed a few months ago
+    raw_messages = GetFullMessages(chan_id, chan_name, False)
     messages = [Message(m, users) for m in raw_messages]
 
     # Get rid of messages which are too old
@@ -183,7 +187,9 @@ def main():
     last_datetime = get_last_message_datetime(logfile_name)
     last_timestamp = time.mktime(last_datetime.timetuple())
 
-    raw_messages = GetFullMessages(chan_id, chan_name)
+    # Last true referes to if channels is private
+    # Slack API changed a few months ago
+    raw_messages = GetFullMessages(chan_id, chan_name, True)
     messages = [Message(m, users) for m in raw_messages]
 
     # Get rid of messages which are too old
@@ -291,10 +297,14 @@ def GetChannelsPrivate():
   return Priv_Channels
 
 # Get a full list of messages from Slack
-def GetFullMessages(chan_id, chan_name):
+def GetFullMessages(chan_id, chan_name, priv):
 
   # Get the last 1000 messages (maximum we can get from Slack at one time)
-  resp = slack.groups.history(chan_id, count=1000, inclusive=True)
+  if priv == False:
+    resp = slack.channels.history(chan_id, count=1000, inclusive=True)
+  else:
+    resp = slack.groups.history(chan_id, count=1000, inclusive=True)
+
   raw_messages = resp.body["messages"]
 
   # This is true if there are more messages we can get
@@ -303,7 +313,10 @@ def GetFullMessages(chan_id, chan_name):
     # Get the timestamp for the earliest message we got in previous iteration
     timestamp = resp.body["messages"][-1]["ts"]
     # Make another request for the next messages
-    resp = slack.groups.history(chan_id, count=1000, inclusive=True, latest=timestamp)
+    if priv == False:
+      resp = slack.channels.history(chan_id, count=1000, inclusive=True, latest=timestamp)
+    else:
+      resp = slack.groups.history(chan_id, count=1000, inclusive=True, latest=timestamp)
     # Prepend our older messages
     raw_messages = resp.body["messages"] + raw_messages
     # Check if we still have more
