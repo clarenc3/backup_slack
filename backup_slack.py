@@ -1,4 +1,6 @@
 #!/usr/bin/env python
+# Slack scraper for logging messages and attachments in slack
+# clarence.wret@gmail.com, cwret@fnal.gov
 
 # Slacker import
 from slacker import Slacker
@@ -49,15 +51,16 @@ class Message:
     self.time_formatted = datetime.datetime.fromtimestamp(self.timestamp).strftime(time_pattern)
 
     # Try setting the subtype
+    # Changed in latest Slack api to be files instead
     try:
-      self.subtype = message["subtype"]
+      self.subtype = message["files"]
     except KeyError:
       self.subtype = None
 
-    # Get some file shares
-    if self.subtype == "file_share":
-      self.link = message["file"]["url_private"]
-      self.linkname = message["file"]["name"]
+    # Get some file shares and make sure they are hosted
+    if self.subtype != None and message["files"][0]["mode"] == "hosted":
+      self.link = message["files"][0]["url_private"]
+      self.linkname = message["files"][0]["name"]
       extension = os.path.splitext(self.linkname)[1]
       self.linkname = (os.path.splitext(self.linkname)[0]+"_"+self.time_formatted+extension).replace(" ", "_")
 
@@ -128,6 +131,7 @@ def main():
   users = GetUsers()
   channels = GetChannels()
   priv_channels = GetChannelsPrivate()
+# GetFiles()
 
   # The channel that posts the results of the logger
   log_channel_id = "POSTING_CHANNEL"
@@ -295,6 +299,11 @@ def GetChannelsPrivate():
   for c in l:
     Priv_Channels[c["id"]] = c["name"]
   return Priv_Channels
+
+def GetFiles():
+  Files = dict()
+  l = slack.files.list()
+  #print l
 
 # Get a full list of messages from Slack
 def GetFullMessages(chan_id, chan_name, priv):
