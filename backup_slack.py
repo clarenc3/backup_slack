@@ -14,6 +14,8 @@ import sys
 # Needed to pull files from Slack
 import urllib2
 
+from shutil import copyfile
+
 # The Slack legacy API key
 api_key = "YOUR_API_KEY"
 # Make the slacker object which we use for the API
@@ -32,10 +34,13 @@ if not os.path.exists(logfile_dir):
 user="USER"
 # Icon of bot
 icon="ICON_POSTER"
-# The "header" for the Slack message, akak pretex
+# The "header" for the Slack message, aka pretext
 subject="MESSAGE"
-# The footer of the Slack message
-footer="FOOTER"
+# Do we post to channels?
+post_to_channel = False
+# The channel that posts the results of the logger
+log_channel = "CHANNEL_TO_POST_LOG"
+log_channel_priv = "CHANNEL_TO_POST_PRIVATE_LOG"
 
 
 # A message class which we loop over in main
@@ -50,23 +55,25 @@ class Message:
     # Set the time
     self.time_formatted = datetime.datetime.fromtimestamp(self.timestamp).strftime(time_pattern)
 
-    # Try setting the subtype
-    # Changed in latest Slack api to be files instead
+    # Check if the message is a file attachment
     try:
       self.subtype = message["files"]
     except KeyError:
       self.subtype = None
 
-    # Get some file shares and make sure they are hosted
-    if self.subtype != None and message["files"][0]["mode"] == "hosted":
-      self.link = message["files"][0]["url_private"]
-      self.linkname = message["files"][0]["name"]
-      extension = os.path.splitext(self.linkname)[1]
-      self.linkname = (os.path.splitext(self.linkname)[0]+"_"+self.time_formatted+extension).replace(" ", "_")
+    self.link = []
+    self.linkname = []
 
-    else:
-      self.link = None
-      self.linkname = None
+    # Get some file shares and hosted
+    if self.subtype != None:
+      # May be many attachments in one message
+      for tempfile in message["files"]:
+        # Only care about hosted files
+        if tempfile["mode"] == "hosted":
+          self.link.append(tempfile["url_private"])
+          self.linkname.append(tempfile["name"])
+          extension = os.path.splitext(self.linkname[-1])[1]
+          self.linkname.append((os.path.splitext(self.linkname[-1])[0]+"_"+self.time_formatted+extension).replace(" ", "_"))
 
     # Naming of messages is wildly inconsistent...
     try:
@@ -131,10 +138,6 @@ def main():
   users = GetUsers()
   channels = GetChannels()
   priv_channels = GetChannelsPrivate()
-# GetFiles()
-
-  # The channel that posts the results of the logger
-  log_channel_id = "POSTING_CHANNEL"
 
   #############################
   # Do the public channels
@@ -155,8 +158,11 @@ def main():
     messages.sort(key=lambda x: x.timestamp)
 
     # Find the logging channels id (not name!)
-    if chan_name == log_channel_id:
+    if chan_name == log_channel:
       log_channel_id = chan_id
+
+    if chan_name == log_channel_priv:
+      log_channel_id_priv = chan_id
 
     # Open the file to append to and write the log
     with open(logfile_name,"a") as f:
@@ -173,21 +179,30 @@ def main():
         if not os.path.exists(logfile_img):
           os.makedirs(logfile_img)
 
-        filename = logfile_img+"/"+m.linkname
-        # Make the OAuth request using the slack key
-        req = urllib2.Request(m.link, None, {'Authorization' : 'Bearer '+api_key})
-        response = urllib2.urlopen(req)
-        file = open(filename, 'wb')
-        file.write(response.read())
-        file.close()
-        n_new_attach[chan_id] += 1
+        for filenumber in range(len(m.link)):
+          filename = logfile_img+"/"+m.linkname[filenumber]
+          # Make the OAuth request using the slack key
+          req = urllib2.Request(m.link[filenumber], None, {'Authorization' : 'Bearer '+api_key})
+          response = urllib2.urlopen(req)
+          file = open(filename, 'wb')
+          file.write(response.read())
+          file.close()
+          n_new_attach[chan_id] += 1
+
+  # Finally copy over the htaccess to the directory
+  copyfile("/home/cwret/slack_logger/keys/htaccess_pub", logfile_dir+"/.htaccess")
 
   #############################
   # Now do the private channels
   n_priv_new_lines = dict([(c,0) for c in priv_channels.iterkeys()])
   n_new_attach_priv = dict([(c,0) for c in priv_channels.iterkeys()])
+  # Add something private for private channels
+  privlogfile_dir = logfile_dir+"/private"
+  # Make the directory
+  if not os.path.exists(privlogfile_dir):
+    os.makedirs(privlogfile_dir)
   for chan_id, chan_name in priv_channels.iteritems():
-    logfile_name = logfile_dir+"/%s_log_%s.txt"%(chan_name,month)
+    logfile_name = privlogfile_dir+"/%s_log_%s.txt"%(chan_name,month)
     last_datetime = get_last_message_datetime(logfile_name)
     last_timestamp = time.mktime(last_datetime.timetuple())
 
@@ -200,8 +215,11 @@ def main():
     messages = [m for m in messages if m.timestamp > last_timestamp]
     messages.sort(key=lambda x: x.timestamp)
 
-    if chan_name == log_channel_id:
+    if chan_name == log_channel:
       log_channel_id = chan_id
+
+    if chan_name == log_channel_priv:
+      log_channel_id_priv = chan_id
 
     # Open the file to append to and write the log
     with open(logfile_name,"a") as f:
@@ -218,38 +236,57 @@ def main():
         if not os.path.exists(logfile_img):
           os.makedirs(logfile_img)
 
-        filename = logfile_img+"/"+m.linkname
-        # Make the OAuth request
-        req = urllib2.Request(m.link, None, {'Authorization' : 'Bearer '+api_key})
-        response = urllib2.urlopen(req)
-        file = open(filename, 'wb')
-        file.write(response.read())
-        file.close()
-        n_new_attach_priv[chan_id] += 1
+        for filenumber in range(len(m.link)):
+          filename = logfile_img+"/"+m.linkname[filenumber]
+          # Make the OAuth request using the slack key
+          req = urllib2.Request(m.link[filenumber], None, {'Authorization' : 'Bearer '+api_key})
+          response = urllib2.urlopen(req)
+          file = open(filename, 'wb')
+          file.write(response.read())
+          file.close()
+          n_new_attach[chan_id] += 1
 
-  # The body we will use to send to Slack
-  body = ""
+  # Finally copy over the htaccess to the directory
+  copyfile("/home/cwret/slack_logger/keys/htaccess_priv", privlogfile_dir+"/.htaccess")
 
-  if log_channel_id is not None:
-    for chan_id,n in n_new_lines.iteritems():
-      output = "Wrote "+`n`+" messages for #"+channels[chan_id]
-      body += output+"\n"
-      print output
+  if post_to_channel:
+    # The body we will use to send to Slack
+    body = ""
 
-  if log_channel_id is not None:
-    for chan_id,n in n_priv_new_lines.iteritems():
-      output = "Wrote "+`n`+" messages for #"+priv_channels[chan_id]
-      body += output+"\n"
-      print output
+    if log_channel_id != None:
+      for chan_id,n in n_new_lines.iteritems():
+        output = "Wrote "+`n`+" messages for #"+channels[chan_id]
+        body += output+"\n"
+        print output
 
+    post=subject
+    slack.chat.post_message(
+        channel=log_channel_id,
+        as_user=False,
+        username=user,
+        icon_url=icon,
+        attachments=[{"pretext": post,
+          "fallback": post,
+          "color": "#36a64f",
+          "footer": user,
+          "text": body}])
 
-  slack.chat.post_message(
-      channel=log_channel_id,
-      as_user=False,
-      username=user,
-      icon_url=icon,
-      attachments=[{"pretext": subject, 
-        "fallback": subject,
+    # Reset the body for the private messages
+    body=""
+    if log_channel_id != None:
+      for chan_id,n in n_priv_new_lines.iteritems():
+        output = "Wrote "+`n`+" private messages for #"+priv_channels[chan_id]
+        body += output+"\n"
+        print output
+
+    post=subject
+    slack.chat.post_message(
+        channel=log_channel_id_priv,
+        as_user=False,
+        username=user,
+        icon_url=icon,
+        attachments=[{"pretext": post,
+        "fallback": post,
         "color": "#36a64f",
         "footer": user,
         "text": body}])
@@ -303,7 +340,6 @@ def GetChannelsPrivate():
 def GetFiles():
   Files = dict()
   l = slack.files.list()
-  #print l
 
 # Get a full list of messages from Slack
 def GetFullMessages(chan_id, chan_name, priv):
