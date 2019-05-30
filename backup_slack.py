@@ -139,6 +139,10 @@ def main():
   channels = GetChannels()
   priv_channels = GetChannelsPrivate()
 
+# The channel ids for the logging channels
+  log_channel_id = ""
+  log_channel_id_priv = ""
+
   #############################
   # Do the public channels
   n_new_lines = dict([(c,0) for c in channels.iterkeys()])
@@ -279,7 +283,7 @@ def main():
         body += output+"\n"
         print output
 
-    post=subject
+    post=subject+"/private"
     slack.chat.post_message(
         channel=log_channel_id_priv,
         as_user=False,
